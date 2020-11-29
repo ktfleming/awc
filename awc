@@ -1,0 +1,322 @@
+#!/usr/bin/env zsh
+
+set -e
+
+# All the top-level AWS resource categories
+all_categories="acm
+autoscaling
+cloudformation
+cloudfront
+cloudwatch
+ec2
+ecs
+elb
+elbv2
+iam
+lambda
+rds
+route53
+s3
+ssm
+sns
+sqs"
+
+# Get all the subcategories for a given top-level category
+get_subcategories() {
+  case "$1" in
+    acm)
+      echo "certificates"
+      ;;
+    autoscaling)
+      echo "groups"
+      ;;
+    cloudformation)
+      echo "stacks"
+      ;;
+    cloudwatch)
+      echo "alarms\ndashboards\nlogs\nmetrics"
+      ;;
+    cloudfront)
+      echo "distributions";
+      ;;
+    ec2)
+      echo "instances\nsecurity groups\nsubnets\nvpcs"
+      ;;
+    ecs)
+      echo "clusters"
+      ;;
+    elb)
+      echo "load balancers"
+      ;;
+    elbv2)
+      echo "load balancers\ntarget groups"
+      ;;
+    iam)
+      echo "roles\nusers"
+      ;;
+    lambda)
+      echo "functions"
+      ;;
+    route53)
+      echo "zones"
+      ;;
+    rds)
+      echo "databases"
+      ;;
+    s3)
+      echo "buckets"
+      ;;
+    ssm)
+      echo "parameters"
+      ;;
+    sns)
+      echo "text messaging (sms)\ntopics"
+      ;;
+    sqs)
+      echo "queues"
+      ;;
+    *)
+      >&2 echo "Unrecognized category '$1'"
+      exit 1
+      ;;
+  esac
+}
+
+# For a given full category (top-level + subcategory), get a shell command that
+# will return a list of items that can be accessed. The item string might later
+# have to be further manipulated in order to generate the URL, but that can be
+# done in the get_url function.
+get_command() {
+  case "$1" in
+    "acm/certificates")
+      # Extract just the ID from the ARN
+      echo "aws acm list-certificates | jq -r '.CertificateSummaryList[] | \"\(.DomainName) (\(.CertificateArn))\"' | sed -e 's#arn:aws:acm.*/##'"
+      ;;
+    "autoscaling/groups")
+      echo "aws autoscaling describe-auto-scaling-groups | jq -r '.AutoScalingGroups[].AutoScalingGroupName'"
+      ;;
+    "cloudformation/stacks")
+      echo "aws cloudformation describe-stacks | jq -r '.Stacks[].StackId'"
+      ;;
+    "cloudfront/distributions")
+      echo "aws cloudfront list-distributions | jq -r '.DistributionList.Items[] | \"\(.Origins.Items[0].Id) (\(.Id))\"'"
+      ;;
+    "cloudwatch/alarms")
+      echo "aws cloudwatch describe-alarms | jq -r '.MetricAlarms[].AlarmName'"
+      ;;
+    "cloudwatch/dashboards")
+      echo "aws cloudwatch list-dashboards | jq -r '.DashboardEntries[].DashboardName'"
+      ;;
+    "cloudwatch/logs")
+      echo "aws logs describe-log-groups | jq -r '.logGroups[].logGroupName'"
+      ;;
+    "cloudwatch/metrics")
+      echo "NONE"
+      ;;
+    "ec2/instances")
+      # We can only search for the instance name, so deduplicate as duplicate names will just be noise
+      echo "aws ec2 describe-instances | jq -r '.Reservations[].Instances[] | .Tags[]? | select(.Key==\"Name\").Value' | sort -u | uniq"
+      ;;
+    "ec2/security groups")
+      # Preserve the group ID to use in the URL
+      echo "aws ec2 describe-security-groups | jq -r '.SecurityGroups[] | \"\(.GroupName) (\(.GroupId))\"'"
+      ;;
+    "ec2/subnets")
+      # Just show subnets that have a name tag
+      echo "aws ec2 describe-subnets | jq -r '.Subnets[] | \"\(.Tags[]? | select(.Key==\"Name\").Value) (\(.SubnetId))\"'" 
+      ;;
+    "ec2/vpcs")
+      # Just show VPCs that have a name tag
+      echo "aws ec2 describe-vpcs | jq -r '.Vpcs[] | \"\(.Tags[]? | select(.Key==\"Name\").Value) (\(.VpcId))\"'"
+      ;;
+    "ecs/clusters")
+      # Have to trim the arn:aws:... string from the front of each ARN to get just the cluster name
+      echo "aws ecs list-clusters | jq -r '.clusterArns[]' | sed -e 's#^arn.*/##'"
+      ;;
+    "elb/load balancers")
+      echo "aws elb describe-load-balancers | jq -r '.LoadBalancerDescriptions[].LoadBalancerName'"
+      ;;
+    "elbv2/load balancers")
+      echo "aws elbv2 describe-load-balancers | jq -r '.LoadBalancers[].LoadBalancerName'"
+      ;;
+    "elbv2/target groups")
+      echo "aws elbv2 describe-target-groups | jq -r '.TargetGroups[].TargetGroupArn'"
+      ;;
+    "iam/roles")
+      echo "aws iam list-roles | jq -r '.Roles[].RoleName'"
+      ;;
+    "iam/users")
+      echo "aws iam list-users | jq -r '.Users[].UserName'"
+      ;;
+    "lambda/functions")
+      echo "aws lambda list-functions | jq -r '.Functions[].FunctionName'"
+      ;;
+    "route53/zones")
+      # Preserve the zone ID to use in the URL
+      echo "aws route53 list-hosted-zones | jq -r '.HostedZones[] | \"\(.Name) (\(.Id))\"' | sed -e 's#/hostedzone/##'"
+      ;;
+    "rds/databases")
+      echo "aws rds describe-db-instances | jq -r '.DBInstances[].DBInstanceIdentifier'"
+      ;;
+    "s3/buckets")
+      echo "aws s3api list-buckets | jq -r '.Buckets[].Name'"
+      ;;
+    "ssm/parameters")
+      echo "aws ssm describe-parameters | jq -r '.Parameters[].Name'"
+      ;;
+    "sns/text messaging (sms)")
+      echo "NONE"
+      ;;
+    "sns/topics")
+      echo "aws sns list-topics | jq -r '.Topics[].TopicArn'"
+      ;;
+    "sqs/queues")
+      echo "aws sqs list-queues | jq -r '.QueueUrls[]'"
+      ;;
+    *)
+      >&2 echo "Unrecognized full category '$1'"
+      exit 1
+      ;;
+  esac
+}
+
+extract_from_last_parens() {
+  # Given a string of the form "foo (bar)", extract the `bar` part. This is for
+  # items that have both a name part (for filtering) and an ID part (for making
+  # the URL)
+  echo $1 | awk '{print $NF}' | sed -e 's/(//' -e 's/)//'
+}
+
+# For a given full category and item, get the URL to view it
+get_url() {
+  local full_category item fixed_item base
+  full_category="$1"
+  item="$2"
+  base="https://console.aws.amazon.com"
+
+  case "$full_category" in
+    "acm/certificates")
+      fixed_item=$(extract_from_last_parens $item)
+      echo "$base/acm/home#/?id=$fixed_item"
+      ;;
+    "autoscaling/groups")
+      echo "$base/ec2autoscaling/home#/details/$item?view=details"
+      ;;
+    "cloudformation/stacks")
+      fixed_item=$(sed -e 's#/#%2F#g' <<< "$item")
+      echo "$base/cloudformation/home#/stacks/stackinfo?stackId=$fixed_item"
+      ;;
+    "cloudfront/distributions")
+      fixed_item=$(extract_from_last_parens $item)
+      echo "$base/cloudfront/home#distribution-settings:$fixed_item"
+      ;;
+    "cloudwatch/alarms")
+      echo "$base/cloudwatch/home#alarmsV2:alarm/$item?"
+      ;;
+    "cloudwatch/dashboards")
+      echo "$base/cloudwatch/home#dashboards:name=$item"
+      ;;
+    "cloudwatch/logs")
+      # Log groups like /aws/lambda/whatever have to use this format
+      fixed_item=$(sed 's#/#$252F#g' <<< "$item")
+      echo "$base/cloudwatch/home#logsV2:log-groups/log-group/$fixed_item"
+      ;;
+    "cloudwatch/metrics")
+      echo "$base/cloudwatch/home#metricsV2:"
+      ;;
+    "ec2/instances")
+      echo "$base/ec2/v2/home#Instances:search=$item"
+      ;;
+    "ec2/security groups")
+      fixed_item=$(extract_from_last_parens $item)
+      echo "$base/ec2/v2/home#SecurityGroup:groupId=$fixed_item"
+      ;;
+    "ec2/subnets")
+      fixed_item=$(extract_from_last_parens $item)
+      echo "$base/vpc/home#SubnetDetails:subnetId=$fixed_item"
+      ;;
+    "ec2/vpcs")
+      fixed_item=$(extract_from_last_parens $item)
+      echo "$base/vpc/home#VpcDetails:VpcId=$fixed_item"
+      ;;
+    "ecs/clusters")
+      echo "$base/ecs/home#/clusters/$item/services"
+      ;;
+    "elb/load balancers"|"elbv2/load balancers")
+      # There doesn't seem to be a dedicated URL for a load balancer; searching is close enough though
+      echo "$base/ec2/v2/home#LoadBalancers:search=$item;sort=loadBalancerName"
+      ;;
+    "elbv2/target groups")
+      echo "$base/ec2/v2/home#TargetGroup:targetGroupArn=$item"
+      ;;
+    "iam/roles")
+      echo "$base/iam/home#/roles/$item"
+      ;;
+    "iam/users")
+      echo "$base/iam/home#/users/$item"
+      ;;
+    "lambda/functions")
+      echo "$base/lambda/home#/functions/$item?tab=configuration"
+      ;;
+    "route53/zones")
+      fixed_item=$(extract_from_last_parens $item)
+      echo "$base/route53/v2/hostedzones#ListRecordSets/$fixed_item"
+      ;;
+    "rds/databases")
+      echo "$base/rds/home#database:id=$item;is-cluster=false"
+      ;;
+    "s3/buckets")
+      echo "$base/s3/buckets/$item?tab=objects"
+      ;;
+    "ssm/parameters")
+      echo "$base/systems-manager/parameters$item?tab=Table"
+      ;;
+    "sns/text messaging (sms)")
+      echo "$base/sns/v3/home#/mobile/text-messaging"
+      ;;
+    "sns/topics")
+      echo "$base/sns/v3/home#/topic/$item"
+      ;;
+    "sqs/queues")
+      fixed_item=$(sed -e 's#/#%2F#g' -e 's/:/%3A/g' <<< "$item")
+      echo "$base/sqs/v2/home#/queues/$fixed_item"
+      ;;
+    *)
+      >&2 echo "Unrecognized full category '$full_category'"
+      exit 1
+      ;;
+  esac
+}
+
+# Use FZF to select, in turn,
+#   - a top-level category
+#   - a subcategory
+#   - an item
+# Then generate the URL for that item and open it in Chrome
+
+category=$(echo "$all_categories" | fzf)
+subcategory=$(get_subcategories "$category" | fzf)
+full_category="$category/$subcategory"
+command=$(get_command "$full_category")
+
+# Some subcategories have no items and we just immediately display a URL. For
+# these cases, `get_command` will return the special string "NONE"
+if [[ $command != "NONE" ]]; then
+  echo "Getting items from AWS..."
+  all_items=$(eval "$command")
+  selected_items=$(fzf --multi <<< "$all_items")
+else
+  selected_items="NONE"
+fi
+
+urls=""
+for item (${(f)selected_items}); do
+  url=$(get_url "$full_category" "$item")
+  urls="$urls \"$url\""
+done
+
+# For whatever reason doing this without wrapping it in 'eval' wasn't working
+# well when selecting multiple items. Something to do with the quotation?
+eval "open -a \"Google Chrome\" $urls"
+
+# vim: set ft=sh
