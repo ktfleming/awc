@@ -13,6 +13,8 @@ Just make the `awc` script executable and put it somewhere on your PATH.
 
 Select from a top-level AWS category (EC2, S3, SQS, etc.) using fzf, then select a sub-category (instances, buckets, queues, alarms, etc.). The AWS CLI will be used to query for a list of all items that fall under the selected sub-category and made available to select in fzf. Upon selection, it will open the details page for that item in Chrome. You can select multiple items (see [fzf documentation](https://github.com/junegunn/fzf#usage), defaults to TAB key) and then press Enter to open up all invidivual pages.
 
+You can set the environment variable `AWC_FZF_OPTS` to change the options that are passed to fzf.
+
 ### Notes
 
 Since I just made this for my own personal use,

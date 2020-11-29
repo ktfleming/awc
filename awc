@@ -2,6 +2,8 @@
 
 set -e
 
+AWC_FZF_OPTS="${AWC_FZF_OPTS:=--reverse --height=40%}"
+
 # All the top-level AWS resource categories
 all_categories="acm
 autoscaling
@@ -293,6 +295,8 @@ get_url() {
 #   - a subcategory
 #   - an item
 # Then generate the URL for that item and open it in Chrome
+
+FZF_DEFAULT_OPTS="$FZF_DEFAULT_OPTS $AWC_FZF_OPTS"
 
 category=$(echo "$all_categories" | fzf)
 subcategory=$(get_subcategories "$category" | fzf)
